@@ -12,6 +12,12 @@ _3rd Year | B.Tech – Artificial Intelligence & Data Science_
 🔗 [LinkedIn – Nhowmitha Suresh](https://www.linkedin.com)  
 
 ---
+## 🖼️ GUI Snapshots
+
+<img width="1218" height="807" alt="Screenshot 2025-11-08 180030" src="https://github.com/user-attachments/assets/b659facc-25af-4d94-8ebb-77e6cf4a2d1d" />
+<img width="1212" height="823" alt="Screenshot 2025-11-08 180142" src="https://github.com/user-attachments/assets/1dac759d-a43a-487b-b62c-fa0428b449a6" />
+<img width="1200" height="795" alt="Screenshot 2025-11-08 181022" src="https://github.com/user-attachments/assets/82500b65-4243-45e4-8d17-d935df6fb865" />
+
 
 </div>
 
@@ -89,53 +95,7 @@ Users can log in, upload retinal images, get a diagnostic prediction, and contac
 
 ---
 
-## 📦 Folder Structure
-
-Retinal_AI/
-│
-├── blindness.py # Tkinter GUI (Main app)
-├── model.py # CNN model for DR classification
-├── classifier.pt # Pretrained model weights (local only)
-├── dr_users.db # SQLite database (auto-created)
-├── prepare_data.py # Dataset organization script
-├── train_model.py # Model training code
-├── images/ # Screenshots for README
-├── sampleimages/ # Example test images
-└── requirements.txt # Python dependencies
-
-yaml
-Copy code
-
 ---
-
-## 🖥️ System Workflow
-
-[1] User Login / Signup
-↓
-[2] Upload Retinal Image
-↓
-[3] AI Model Predicts DR Severity
-↓
-[4] Displays Result & Recommendation
-↓
-[5] User Can Review / Contact Doctor
-
-yaml
-Copy code
-
----
-
-## 🖼️ GUI Snapshots
-
-### 🌃 Welcome Screen  
-> Clean, futuristic login and sign-up interface with gradient styling.  
-![Welcome Screen](images/Screenshot_2025-11-08_180030.png)
-
----
-
-### 🩻 Retinal Image Prediction  
-> Upload a retinal image and instantly view the AI-based DR severity and recommendation.  
-![Prediction Screen](images/f95ea3fc-3ebf-4580-a50c-8b5062eaffdb.png)
 
 ---
 
