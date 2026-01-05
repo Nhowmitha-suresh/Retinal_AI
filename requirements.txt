@@ -1,9 +1,9 @@
-matplotlib==3.7.2
+matplotlib>=3.8
 notebook==7.0.7
-numpy==1.26.4
-pandas==2.2.2
-pillow==10.3.0
+pandas>=2.2.3
+pillow>=10.4.0
 mysql-connector-python==8.3.0
 scikit-learn==1.5.2
-tensorflow==2.15.0
 opencv-python==4.10.0.84
+torch
+torchvision

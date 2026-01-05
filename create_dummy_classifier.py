@@ -101,3 +101,4 @@ def main(path):
     """Main function to get model predictions."""
     x, y = inference(model, path, test_transforms, classes)
     return x, y
+    

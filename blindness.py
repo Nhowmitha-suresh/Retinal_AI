@@ -1,254 +1,405 @@
 import customtkinter as ctk
-from tkinter import messagebox, filedialog
-from PIL import Image, ImageTk
-import sqlite3, datetime, webbrowser
+from customtkinter import CTkImage
+from tkinter import filedialog, messagebox
+from PIL import Image
+import sqlite3
+import datetime
+import os
+import random
+import matplotlib.pyplot as plt
 
-# ---------------- THEME SETTINGS ----------------
+# =========================================================
+# SAFETY & THEME
+# =========================================================
+ctk.deactivate_automatic_dpi_awareness()
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-BG_GRADIENT = ("#0a0f1a", "#001d33")
-ACCENT = "#00FFFF"
-HOVER = "#008B8B"
-TITLE_FONT = ("Segoe UI Semibold", 26)
-TEXT_FONT = ("Segoe UI", 13)
-BTN_FONT = ("Segoe UI Semibold", 14)
+# =========================================================
+# DUAL COLOUR SYSTEM (ONLY TWO COLOURS)
+# =========================================================
+SAFE_COLOR = "#00E5FF"     # Blue–Cyan (No DR / Mild)
+DANGER_COLOR = "#FF4D4D"   # Red (Moderate / Severe)
+CARD_BG = "#0B2C3D"
+TEXT_CLR = "#EAF6FF"
+TOPBAR_BG = "#021826"
+SIDEBAR_BG = "#021826"
 
-# ---------------- DATABASE ----------------
-conn = sqlite3.connect("dr_users.db")
-cursor = conn.cursor()
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
+# =========================================================
+# DATABASE
+# =========================================================
+conn = sqlite3.connect("retinal_ai.db")
+cur = conn.cursor()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users(
     username TEXT PRIMARY KEY,
-    password TEXT,
-    name TEXT,
-    email TEXT,
-    created_at TEXT
+    password TEXT
 )
 """)
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS reviews (
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS patients(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT,
-    comment TEXT,
-    rating INTEGER,
+    name TEXT,
+    age INTEGER,
+    gender TEXT,
+    phone TEXT,
+    address TEXT
+)
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS reports(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id INTEGER,
+    severity TEXT,
+    confidence INTEGER,
+    recommendation TEXT,
+    referred TEXT,
     created_at TEXT
 )
 """)
 conn.commit()
 
-# ---------------- APP CLASS ----------------
-class RetinalAI(ctk.CTk):
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
+def severity_color(severity):
+    if severity in ["No DR", "Mild"]:
+        return SAFE_COLOR
+    return DANGER_COLOR
+
+def recommendation_text(severity):
+    if severity in ["No DR", "Mild"]:
+        return "Regular monitoring recommended"
+    return "Immediate ophthalmologist consultation required"
+
+# =========================================================
+# MAIN APP
+# =========================================================
+class RetinalAIApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("Retinal AI - Tamil Nadu Network")
-        self.geometry("1000x650")
-        self.resizable(False, False)
 
-        # Navigation bar
-        self.navbar = ctk.CTkFrame(self, fg_color="#001b25", height=50)
-        self.navbar.pack(fill="x")
+        self.title("RETINAL AI – Diabetic Retinopathy Detection")
+        self.state("zoomed")
+        self.minsize(1200, 720)
 
-        self.current_user = None
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
 
-        # Page container
-        self.container = ctk.CTkFrame(self, fg_color=BG_GRADIENT)
-        self.container.pack(fill="both", expand=True)
+        # ---------------- BACKGROUND IMAGE ----------------
+        bg_path = "assets/bg_eye.jpg"
+        if os.path.exists(bg_path):
+            img = Image.open(bg_path).resize((screen_w, screen_h))
+        else:
+            img = Image.new("RGB", (screen_w, screen_h), "#000000")
 
-        # Initialize frames
+        self.bg_img = CTkImage(light_image=img, dark_image=img, size=(screen_w, screen_h))
+        ctk.CTkLabel(self, image=self.bg_img, text="").place(x=0, y=0)
+
+        # ---------------- TOP BAR ----------------
+        self.topbar = ctk.CTkFrame(self, height=60, fg_color=TOPBAR_BG)
+        self.topbar.pack(fill="x")
+
+        ctk.CTkLabel(
+            self.topbar,
+            text="RETINAL AI – Primary Health Centre Screening System",
+            font=("Segoe UI", 20, "bold"),
+            text_color=SAFE_COLOR
+        ).pack(side="left", padx=20)
+
+        # ---------------- SIDEBAR ----------------
+        self.sidebar = ctk.CTkFrame(self, width=240, fg_color=SIDEBAR_BG)
+        self.sidebar.place(x=0, y=60, relheight=1)
+
+        # ---------------- MAIN CONTAINER ----------------
+        self.container = ctk.CTkFrame(self, fg_color="transparent")
+        self.container.place(x=240, y=60, relwidth=1, relheight=1)
+
+        # ---------------- PAGES ----------------
         self.frames = {}
-        for Page in (WelcomePage, LoginPage, SignupPage, AboutPage, ReportPage, ReviewPage, DoctorPage):
+        for Page in (
+            LoginPage,
+            AboutPage,
+            PatientPage,
+            ScanPage,
+            ReportPage,
+            AnalyticsPage,
+        ):
             frame = Page(self.container, self)
             self.frames[Page] = frame
-            frame.place(x=0, y=0, relwidth=1, relheight=1)
+            frame.place(relwidth=1, relheight=1)
 
-        self.show_frame(WelcomePage)
+        self.show(LoginPage)
 
-    def update_navbar(self, active_page=None):
-        for widget in self.navbar.winfo_children():
-            widget.destroy()
+        # ---------------- SIDEBAR BUTTONS ----------------
+        buttons = [
+            ("About App", AboutPage),
+            ("Patient Details", PatientPage),
+            ("Retinal Scan", ScanPage),
+            ("AI Report", ReportPage),
+            ("Analytics", AnalyticsPage),
+        ]
 
-        ctk.CTkLabel(self.navbar, text="RETINAL AI", text_color=ACCENT,
-                     font=("Segoe UI Black", 20)).pack(side="left", padx=20)
+        for txt, page in buttons:
+            ctk.CTkButton(
+                self.sidebar,
+                text=txt,
+                fg_color="transparent",
+                hover_color="#033e5c",
+                anchor="w",
+                command=lambda p=page: self.show(p)
+            ).pack(fill="x", padx=12, pady=8)
 
-        if self.current_user:
-            buttons = [
-                ("About", AboutPage),
-                ("Upload Report", ReportPage),
-                ("Review", ReviewPage),
-                ("Doctors", DoctorPage),
-                ("Logout", WelcomePage)
-            ]
-            for text, page in buttons:
-                ctk.CTkButton(
-                    self.navbar, text=text, font=("Segoe UI", 13),
-                    fg_color="transparent", hover_color="#002b3d",
-                    text_color="white", width=100, corner_radius=10,
-                    command=lambda p=page: self.show_frame(p)
-                ).pack(side="right", padx=5, pady=5)
-
-    def show_frame(self, page):
-        self.update_navbar(active_page=page)
+    def show(self, page):
         self.frames[page].tkraise()
 
-# ---------------- PAGES ----------------
-
-class WelcomePage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        self.controller = controller
-        ctk.CTkLabel(self, text="Welcome to", font=("Segoe UI", 20), text_color="#AAAAAA").pack(pady=(120, 0))
-        ctk.CTkLabel(self, text="RETINAL AI", font=("Segoe UI Black", 42), text_color=ACCENT).pack(pady=10)
-        ctk.CTkLabel(self, text="Diabetic Retinopathy Detection System", font=TEXT_FONT).pack(pady=20)
-
-        ctk.CTkButton(self, text="Login", fg_color=ACCENT, text_color="black",
-                      hover_color=HOVER, font=BTN_FONT,
-                      command=lambda: controller.show_frame(LoginPage)).pack(pady=10)
-        ctk.CTkButton(self, text="Sign Up", fg_color="#9400D3", text_color="white",
-                      hover_color="#9932CC", font=BTN_FONT,
-                      command=lambda: controller.show_frame(SignupPage)).pack(pady=10)
-
-
+# =========================================================
+# LOGIN PAGE
+# =========================================================
 class LoginPage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        self.controller = controller
-        ctk.CTkLabel(self, text="Login", font=TITLE_FONT, text_color=ACCENT).pack(pady=(100, 20))
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
 
-        self.username = ctk.CTkEntry(self, placeholder_text="Username", width=250)
-        self.username.pack(pady=5)
-        self.password = ctk.CTkEntry(self, placeholder_text="Password", show="*", width=250)
-        self.password.pack(pady=5)
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=25,
+                            width=420, height=300)
+        card.place(relx=0.5, rely=0.4, anchor="center")
 
-        ctk.CTkButton(self, text="Login", fg_color=ACCENT, text_color="black", hover_color=HOVER,
-                      font=BTN_FONT, command=self.login).pack(pady=15)
-        ctk.CTkButton(self, text="Back", fg_color="#444", hover_color="#666",
-                      font=BTN_FONT, command=lambda: controller.show_frame(WelcomePage)).pack()
+        ctk.CTkLabel(card, text="System Login",
+                     font=("Segoe UI", 22, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=25)
+
+        self.user = ctk.CTkEntry(card, placeholder_text="Username", width=280)
+        self.pwd = ctk.CTkEntry(card, placeholder_text="Password", show="*", width=280)
+        self.user.pack(pady=10)
+        self.pwd.pack(pady=10)
+
+        ctk.CTkButton(
+            card, text="Login",
+            fg_color=SAFE_COLOR, text_color="black",
+            width=200, command=self.login
+        ).pack(pady=20)
 
     def login(self):
-        u, p = self.username.get(), self.password.get()
-        cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p))
-        if cursor.fetchone():
-            messagebox.showinfo("Welcome", f"Hello {u}")
-            self.controller.current_user = u
-            self.controller.show_frame(AboutPage)
-        else:
-            messagebox.showerror("Error", "Invalid credentials")
+        u, p = self.user.get(), self.pwd.get()
+        if not u or not p:
+            messagebox.showerror("Error", "Enter credentials")
+            return
+        cur.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p))
+        if not cur.fetchone():
+            cur.execute("INSERT INTO users VALUES (?,?)", (u, p))
+            conn.commit()
+        self.master.master.show(AboutPage)
 
+# =========================================================
+# ABOUT PAGE
+# =========================================================
+class AboutPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
 
-class SignupPage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        self.controller = controller
-        ctk.CTkLabel(self, text="Create Account", font=TITLE_FONT, text_color="#FFD700").pack(pady=(80, 20))
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=25,
+                            width=900, height=420)
+        card.place(relx=0.55, rely=0.45, anchor="center")
+
+        ctk.CTkLabel(card, text="About Retinal AI",
+                     font=("Segoe UI", 26, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=20)
+
+        ctk.CTkLabel(
+            card,
+            text=(
+                "Retinal AI is an AI-assisted Diabetic Retinopathy screening system\n"
+                "designed for use in Primary Health Centres (PHCs).\n\n"
+                "KEY FEATURES:\n"
+                "• AI-based severity prediction\n"
+                "• Dual-colour clinical UI (Safe / Danger)\n"
+                "• Secure patient data storage\n"
+                "• Clinical reports with confidence score\n"
+                "• Referral support for ophthalmologists\n\n"
+                "The system helps in early detection of diabetic eye disease,\n"
+                "reducing preventable blindness through timely referral."
+            ),
+            justify="left",
+            font=("Segoe UI", 15),
+            text_color=TEXT_CLR
+        ).pack(padx=40, pady=10)
+
+# =========================================================
+# PATIENT PAGE
+# =========================================================
+class PatientPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
+
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=25,
+                            width=650, height=440)
+        card.place(relx=0.55, rely=0.45, anchor="center")
+
+        ctk.CTkLabel(card, text="Patient Details",
+                     font=("Segoe UI", 22, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=15)
+
         self.entries = {}
-        for field in ["Username", "Password", "Full Name", "Email"]:
-            e = ctk.CTkEntry(self, placeholder_text=field, width=300)
-            e.pack(pady=8)
+        for field in ["Name", "Age", "Gender", "Phone", "Address"]:
+            e = ctk.CTkEntry(card, placeholder_text=field, width=450)
+            e.pack(pady=6)
             self.entries[field] = e
 
-        ctk.CTkButton(self, text="Sign Up", fg_color=ACCENT, text_color="black",
-                      hover_color=HOVER, font=BTN_FONT, command=self.signup).pack(pady=15)
-        ctk.CTkButton(self, text="Back", fg_color="#444", hover_color="#666",
-                      font=BTN_FONT, command=lambda: controller.show_frame(LoginPage)).pack()
+        ctk.CTkButton(
+            card, text="Save Patient",
+            fg_color=SAFE_COLOR, text_color="black",
+            width=220, command=self.save_patient
+        ).pack(pady=20)
 
-    def signup(self):
-        vals = {k: e.get() for k, e in self.entries.items()}
-        if not all(vals.values()):
-            messagebox.showerror("Error", "All fields required")
+    def save_patient(self):
+        d = {k: v.get() for k, v in self.entries.items()}
+        if not all(d.values()):
+            messagebox.showerror("Error", "Fill all fields")
             return
-        cursor.execute("SELECT * FROM users WHERE username=?", (vals["Username"],))
-        if cursor.fetchone():
-            messagebox.showerror("Error", "Username exists")
-            return
-        cursor.execute("INSERT INTO users VALUES (?,?,?,?,?)",
-                       (vals["Username"], vals["Password"], vals["Full Name"], vals["Email"],
-                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        cur.execute(
+            "INSERT INTO patients(name, age, gender, phone, address) VALUES (?,?,?,?,?)",
+            (d["Name"], d["Age"], d["Gender"], d["Phone"], d["Address"])
+        )
         conn.commit()
-        messagebox.showinfo("Success", "Account created successfully!")
-        self.controller.show_frame(LoginPage)
+        messagebox.showinfo("Saved", "Patient data stored")
 
+# =========================================================
+# SCAN PAGE
+# =========================================================
+class ScanPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
 
-class AboutPage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        ctk.CTkLabel(self, text="About Retinal AI", font=TITLE_FONT, text_color=ACCENT).pack(pady=(70, 20))
-        desc = ("This AI system predicts Diabetic Retinopathy (DR) stages from retinal images.\n"
-                "Built with deep learning models, it helps early diagnosis and connects users\n"
-                "with trusted ophthalmologists in Tamil Nadu for consultation.")
-        ctk.CTkLabel(self, text=desc, wraplength=800, font=TEXT_FONT).pack(pady=20)
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=25,
+                            width=650, height=360)
+        card.place(relx=0.55, rely=0.45, anchor="center")
 
+        ctk.CTkLabel(card, text="Retinal Image Upload",
+                     font=("Segoe UI", 22, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=15)
 
-class ReportPage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        self.controller = controller
-        ctk.CTkLabel(self, text="Upload Retinal Image", font=TITLE_FONT, text_color=ACCENT).pack(pady=(70, 20))
-        self.preview = ctk.CTkLabel(self, text="")
+        self.preview = ctk.CTkLabel(card, text="No image selected")
         self.preview.pack(pady=10)
-        self.result = ctk.CTkLabel(self, text="", wraplength=800)
-        self.result.pack(pady=15)
-        ctk.CTkButton(self, text="Choose Image", fg_color=ACCENT, text_color="black",
-                      hover_color=HOVER, command=self.upload).pack(pady=10)
+
+        ctk.CTkButton(
+            card, text="Upload Image",
+            fg_color=SAFE_COLOR, text_color="black",
+            command=self.upload
+        ).pack(pady=10)
 
     def upload(self):
-        f = filedialog.askopenfilename(filetypes=[("Images", "*.jpg;*.png")])
+        f = filedialog.askopenfilename(filetypes=[("Images", "*.jpg *.png")])
         if not f:
             return
         img = Image.open(f)
-        img.thumbnail((300, 250))
-        self.tkimg = ImageTk.PhotoImage(img)
-        self.preview.configure(image=self.tkimg)
-        self.result.configure(text="Prediction: Mild DR\nRecommendation: Regular monitoring.")
+        img.thumbnail((320, 220))
+        self.tkimg = CTkImage(light_image=img, dark_image=img, size=(320, 220))
+        self.preview.configure(image=self.tkimg, text="")
 
+# =========================================================
+# REPORT PAGE (AI SEVERITY + COLOUR CHANGE)
+# =========================================================
+class ReportPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
 
-class ReviewPage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        ctk.CTkLabel(self, text="Patient Review", font=TITLE_FONT, text_color="#FFD700").pack(pady=(70, 20))
-        self.comment = ctk.CTkTextbox(self, width=500, height=100)
-        self.comment.pack(pady=10)
-        self.rating = ctk.CTkComboBox(self, values=["1", "2", "3", "4", "5"], width=80)
-        self.rating.pack(pady=5)
-        ctk.CTkButton(self, text="Submit", fg_color=ACCENT, text_color="black",
-                      hover_color=HOVER, command=self.submit).pack(pady=15)
+        self.card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=25,
+                                 width=650, height=420)
+        self.card.place(relx=0.55, rely=0.45, anchor="center")
 
-    def submit(self):
-        comment = self.comment.get("1.0", "end").strip()
-        rating = self.rating.get()
-        if not comment:
-            messagebox.showerror("Error", "Please enter a review")
-            return
-        cursor.execute("INSERT INTO reviews (username, comment, rating, created_at) VALUES (?,?,?,?)",
-                       ("guest", comment, rating, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        ctk.CTkLabel(self.card, text="AI Severity Prediction",
+                     font=("Segoe UI", 22, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=15)
+
+        self.severity_lbl = ctk.CTkLabel(
+            self.card, text="Severity: --",
+            font=("Segoe UI", 18, "bold"),
+            text_color=TEXT_CLR
+        )
+        self.severity_lbl.pack(pady=10)
+
+        self.conf_bar = ctk.CTkProgressBar(
+            self.card, width=450, progress_color=SAFE_COLOR
+        )
+        self.conf_bar.set(0)
+        self.conf_bar.pack(pady=10)
+
+        self.conf_txt = ctk.CTkLabel(
+            self.card, text="Confidence: -- %",
+            font=("Segoe UI", 14), text_color=TEXT_CLR
+        )
+        self.conf_txt.pack(pady=5)
+
+        ctk.CTkButton(
+            self.card, text="Run AI Model",
+            fg_color=SAFE_COLOR, text_color="black",
+            width=220, command=self.run_model
+        ).pack(pady=20)
+
+    def run_model(self):
+        # ---- SIMULATED MODEL OUTPUT ----
+        severity = random.choice(["No DR", "Mild", "Moderate", "Severe"])
+        confidence = random.randint(60, 95)
+
+        color = severity_color(severity)
+
+        self.severity_lbl.configure(
+            text=f"Severity: {severity}",
+            text_color=color
+        )
+        self.conf_bar.configure(progress_color=color)
+        self.conf_bar.set(confidence / 100)
+        self.conf_txt.configure(
+            text=f"Confidence: {confidence} %",
+            text_color=color
+        )
+
+        cur.execute(
+            "INSERT INTO reports(patient_id, severity, confidence, recommendation, referred, created_at)"
+            " VALUES (1, ?, ?, ?, ?, ?)",
+            (
+                severity,
+                confidence,
+                recommendation_text(severity),
+                "Yes" if color == DANGER_COLOR else "No",
+                datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            )
+        )
         conn.commit()
-        messagebox.showinfo("Success", "Review submitted!")
 
+# =========================================================
+# ANALYTICS PAGE
+# =========================================================
+class AnalyticsPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
 
-class DoctorPage(ctk.CTkFrame):
-    def __init__(self, parent, controller):
-        super().__init__(parent, fg_color=BG_GRADIENT)
-        ctk.CTkLabel(self, text="Contact Ophthalmologists (Tamil Nadu)", font=TITLE_FONT, text_color=ACCENT).pack(pady=(60, 20))
-        doctors = [
-            ("Aravind Eye Hospital", "Madurai", "+91 452 435 6100", "https://www.aravind.org"),
-            ("Sankara Nethralaya", "Chennai", "+91 44 2827 1616", "https://www.sankaranethralaya.org"),
-            ("Dr. Agarwal’s Eye Hospital", "Chennai", "+91 44 4227 7777", "https://www.dragarwal.com"),
-            ("Vasan Eye Care", "Coimbatore", "+91 422 456 7777", "https://www.vasaneye.in"),
-            ("Lotus Eye Hospital", "Coimbatore", "+91 422 422 9999", "https://www.lotuseye.org"),
-            ("Joseph Eye Hospital", "Tiruchirapalli", "+91 431 270 1615", "https://www.josepheye.org"),
-            ("Uma Eye Clinic", "Chennai", "+91 44 2827 4050", "https://www.umaeyeclinic.in")
-        ]
-        for name, city, phone, site in doctors:
-            frame = ctk.CTkFrame(self, fg_color="#002b3d", corner_radius=10)
-            frame.pack(pady=10, padx=50, fill="x")
-            ctk.CTkLabel(frame, text=f"{name} ({city})", font=("Segoe UI", 15, "bold"),
-                         text_color="#00CED1").pack(anchor="w", padx=15)
-            ctk.CTkLabel(frame, text=f"📞 {phone}", font=TEXT_FONT).pack(anchor="w", padx=15)
-            ctk.CTkButton(frame, text="Visit Website", fg_color=ACCENT, text_color="black",
-                          hover_color=HOVER, width=120,
-                          command=lambda url=site: webbrowser.open(url)).pack(anchor="e", padx=15, pady=5)
+        ctk.CTkButton(
+            self, text="View Severity Analytics",
+            fg_color=SAFE_COLOR, text_color="black",
+            width=260, command=self.graph
+        ).place(relx=0.55, rely=0.45, anchor="center")
 
-# ---------------- RUN ----------------
+    def graph(self):
+        cur.execute("SELECT severity, confidence FROM reports")
+        rows = cur.fetchall()
+        if not rows:
+            messagebox.showinfo("No Data", "No reports available")
+            return
+
+        confidences = [r[1] for r in rows]
+        colors = [severity_color(r[0]) for r in rows]
+
+        plt.bar(range(len(confidences)), confidences, color=colors)
+        plt.ylabel("Confidence %")
+        plt.title("AI Severity Analysis")
+        plt.show()
+
+# =========================================================
+# RUN
+# =========================================================
 if __name__ == "__main__":
-    app = RetinalAI()
-    app.mainloop()
+    RetinalAIApp().mainloop()
