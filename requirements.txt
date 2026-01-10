@@ -1,9 +1,5 @@
-matplotlib>=3.8
-notebook==7.0.7
-pandas>=2.2.3
-pillow>=10.4.0
-mysql-connector-python==8.3.0
-scikit-learn==1.5.2
-opencv-python==4.10.0.84
-torch
-torchvision
+customtkinter
+pillow
+matplotlib
+opencv-python
+numpy
