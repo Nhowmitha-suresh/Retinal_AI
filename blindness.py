@@ -7,23 +7,25 @@ import datetime
 import os
 import random
 import matplotlib.pyplot as plt
+import hashlib
+import re
 
 # =========================================================
 # SAFETY & THEME
 # =========================================================
 ctk.deactivate_automatic_dpi_awareness()
-ctk.set_appearance_mode("dark")
+ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 # =========================================================
 # DUAL COLOUR SYSTEM (ONLY TWO COLOURS)
 # =========================================================
-SAFE_COLOR = "#00E5FF"     # Blue–Cyan (No DR / Mild)
+SAFE_COLOR = "#007BFF"     # Medical Blue
 DANGER_COLOR = "#FF4D4D"   # Red (Moderate / Severe)
-CARD_BG = "#0B2C3D"
-TEXT_CLR = "#EAF6FF"
-TOPBAR_BG = "#021826"
-SIDEBAR_BG = "#021826"
+CARD_BG = "#FFFFFF"
+TEXT_CLR = "#1A2B3C"
+TOPBAR_BG = "#E9F2FF"
+SIDEBAR_BG = "#F4F8FF"
 
 # =========================================================
 # DATABASE
@@ -31,12 +33,29 @@ SIDEBAR_BG = "#021826"
 conn = sqlite3.connect("retinal_ai.db")
 cur = conn.cursor()
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS users(
-    username TEXT PRIMARY KEY,
-    password TEXT
+# users table: add role and password_hash for strong auth while supporting legacy rows
+cur.execute(
+    """
+    CREATE TABLE IF NOT EXISTS users(
+        username TEXT PRIMARY KEY,
+        password TEXT,
+        role TEXT,
+        password_hash TEXT
+    )
+    """
 )
-""")
+# ensure columns exist if DB was created earlier
+def _ensure_column(table, column, coltype):
+    cur.execute(f"PRAGMA table_info({table})")
+    cols = [c[1] for c in cur.fetchall()]
+    if column not in cols:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+        except Exception:
+            pass
+
+_ensure_column("users", "role", "TEXT")
+_ensure_column("users", "password_hash", "TEXT")
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS patients(
@@ -74,6 +93,23 @@ def recommendation_text(severity):
     if severity in ["No DR", "Mild"]:
         return "Regular monitoring recommended"
     return "Immediate ophthalmologist consultation required"
+
+# password utilities
+def hash_password(pw: str) -> str:
+    return hashlib.sha256(pw.encode("utf-8")).hexdigest()
+
+def is_strong_password(pw: str) -> bool:
+    if len(pw) < 8:
+        return False
+    if not re.search(r"[A-Z]", pw):
+        return False
+    if not re.search(r"[a-z]", pw):
+        return False
+    if not re.search(r"\d", pw):
+        return False
+    if not re.search(r"[^A-Za-z0-9]", pw):
+        return False
+    return True
 
 # =========================================================
 # MAIN APP
@@ -122,10 +158,12 @@ class RetinalAIApp(ctk.CTk):
         self.frames = {}
         for Page in (
             LoginPage,
+            RegistrationPage,
             AboutPage,
             PatientPage,
             ScanPage,
             ReportPage,
+            ReportDetailPage,
             AnalyticsPage,
         ):
             frame = Page(self.container, self)
@@ -140,6 +178,7 @@ class RetinalAIApp(ctk.CTk):
             ("Patient Details", PatientPage),
             ("Retinal Scan", ScanPage),
             ("AI Report", ReportPage),
+            ("Medical Report", ReportDetailPage),
             ("Analytics", AnalyticsPage),
         ]
 
@@ -163,35 +202,116 @@ class LoginPage(ctk.CTkFrame):
     def __init__(self, parent, app):
         super().__init__(parent, fg_color="transparent")
 
-        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=25,
-                            width=420, height=300)
-        card.place(relx=0.5, rely=0.4, anchor="center")
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=16,
+                            width=460, height=360)
+        card.place(relx=0.5, rely=0.45, anchor="center")
 
-        ctk.CTkLabel(card, text="System Login",
+        ctk.CTkLabel(card, text="Welcome to Retinal AI",
                      font=("Segoe UI", 22, "bold"),
-                     text_color=SAFE_COLOR).pack(pady=25)
+                     text_color=SAFE_COLOR).pack(pady=18)
 
-        self.user = ctk.CTkEntry(card, placeholder_text="Username", width=280)
-        self.pwd = ctk.CTkEntry(card, placeholder_text="Password", show="*", width=280)
-        self.user.pack(pady=10)
-        self.pwd.pack(pady=10)
+        self.role = ctk.CTkOptionMenu(card, values=["Doctor", "Patient"])
+        self.role.set("Doctor")
+        self.role.pack(pady=6)
 
+        self.user = ctk.CTkEntry(card, placeholder_text="Username", width=320)
+        self.pwd = ctk.CTkEntry(card, placeholder_text="Password", show="*", width=320)
+        self.user.pack(pady=6)
+        self.pwd.pack(pady=6)
+
+        btn_row = ctk.CTkFrame(card, fg_color="transparent")
+        btn_row.pack(pady=14)
         ctk.CTkButton(
-            card, text="Login",
-            fg_color=SAFE_COLOR, text_color="black",
-            width=200, command=self.login
-        ).pack(pady=20)
+            btn_row, text="Login",
+            fg_color=SAFE_COLOR, text_color="white",
+            width=140, command=self.login
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            btn_row, text="Register",
+            fg_color="#6C757D", text_color="white",
+            width=140, command=lambda: self.master.master.show(RegistrationPage)
+        ).pack(side="left", padx=6)
 
     def login(self):
         u, p = self.user.get(), self.pwd.get()
+        role = self.role.get()
         if not u or not p:
             messagebox.showerror("Error", "Enter credentials")
             return
-        cur.execute("SELECT * FROM users WHERE username=? AND password=?", (u, p))
-        if not cur.fetchone():
-            cur.execute("INSERT INTO users VALUES (?,?)", (u, p))
-            conn.commit()
+        # First try hashed
+        cur.execute("SELECT username FROM users WHERE username=? AND role=? AND password_hash=?",
+                    (u, role, hash_password(p)))
+        row = cur.fetchone()
+        if not row:
+            # fallback to legacy plaintext (no role filter to support older rows)
+            cur.execute("SELECT username FROM users WHERE username=? AND password=?",
+                        (u, p))
+            row = cur.fetchone()
+        if not row:
+            messagebox.showerror("Login Failed", "Invalid credentials")
+            return
         self.master.master.show(AboutPage)
+
+class RegistrationPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
+
+        card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=16,
+                            width=520, height=420)
+        card.place(relx=0.5, rely=0.5, anchor="center")
+
+        ctk.CTkLabel(card, text="Create Account",
+                     font=("Segoe UI", 22, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=12)
+
+        self.role = ctk.CTkOptionMenu(card, values=["Doctor", "Patient"])
+        self.role.set("Doctor")
+        self.role.pack(pady=6)
+
+        self.user = ctk.CTkEntry(card, placeholder_text="Username", width=360)
+        self.pwd = ctk.CTkEntry(card, placeholder_text="Password", show="*", width=360)
+        self.pwd2 = ctk.CTkEntry(card, placeholder_text="Confirm Password", show="*", width=360)
+        self.user.pack(pady=6)
+        self.pwd.pack(pady=6)
+        self.pwd2.pack(pady=6)
+
+        ctk.CTkButton(
+            card, text="Register",
+            fg_color=SAFE_COLOR, text_color="white",
+            width=200, command=self.register
+        ).pack(pady=14)
+
+        ctk.CTkButton(
+            card, text="Back to Login",
+            fg_color="#6C757D", text_color="white",
+            width=200, command=lambda: self.master.master.show(LoginPage)
+        ).pack()
+
+    def register(self):
+        u, p1, p2, role = self.user.get().strip(), self.pwd.get(), self.pwd2.get(), self.role.get()
+        if not u or not p1 or not p2:
+            messagebox.showerror("Error", "Fill all fields")
+            return
+        if p1 != p2:
+            messagebox.showerror("Error", "Passwords do not match")
+            return
+        if not is_strong_password(p1):
+            messagebox.showerror(
+                "Weak Password",
+                "Use at least 8 characters with upper, lower, number, and special symbol."
+            )
+            return
+        try:
+            cur.execute(
+                "INSERT INTO users(username, password, role, password_hash) VALUES (?,?,?,?)",
+                (u, None, role, hash_password(p1))
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            messagebox.showerror("Error", "Username already exists")
+            return
+        messagebox.showinfo("Success", "Registration complete. Please login.")
+        self.master.master.show(LoginPage)
 
 # =========================================================
 # ABOUT PAGE
@@ -369,6 +489,52 @@ class ReportPage(ctk.CTkFrame):
             )
         )
         conn.commit()
+        messagebox.showinfo("Diagnosis Complete", "Medical report generated.")
+        self.master.master.show(ReportDetailPage)
+
+class ReportDetailPage(ctk.CTkFrame):
+    def __init__(self, parent, app):
+        super().__init__(parent, fg_color="transparent")
+
+        self.card = ctk.CTkFrame(self, fg_color=CARD_BG, corner_radius=16,
+                                 width=720, height=460)
+        self.card.place(relx=0.55, rely=0.5, anchor="center")
+
+        ctk.CTkLabel(self.card, text="Medical Report",
+                     font=("Segoe UI", 24, "bold"),
+                     text_color=SAFE_COLOR).pack(pady=12)
+
+        self.details = ctk.CTkLabel(self.card, text="",
+                                    font=("Segoe UI", 14),
+                                    text_color=TEXT_CLR,
+                                    justify="left")
+        self.details.pack(padx=24, pady=10, anchor="w")
+
+        ctk.CTkButton(
+            self.card, text="Refresh",
+            fg_color=SAFE_COLOR, text_color="white",
+            width=160, command=self.load_latest
+        ).pack(pady=10)
+
+        self.load_latest()
+
+    def load_latest(self):
+        cur.execute("SELECT severity, confidence, recommendation, referred, created_at FROM reports ORDER BY id DESC LIMIT 1")
+        row = cur.fetchone()
+        if not row:
+            self.details.configure(text="No report available yet.")
+            return
+        severity, confidence, recommendation, referred, created_at = row
+        color = severity_color(severity)
+        self.details.configure(
+            text=(
+                f"Date: {created_at}\n"
+                f"Severity: {severity}\n"
+                f"Confidence: {confidence} %\n"
+                f"Recommendation: {recommendation}\n"
+                f"Referral Required: {referred}"
+            )
+        )
 
 # =========================================================
 # ANALYTICS PAGE
