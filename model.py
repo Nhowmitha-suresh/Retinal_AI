@@ -11,14 +11,23 @@ from torchvision import models, transforms
 from PIL import Image
 from torch.optim import lr_scheduler
 import os, random
+import sys
 
-print("✅ Imported packages successfully")
+# Safe print function for Windows console encoding
+def safe_print(msg):
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        # Fallback to ASCII-safe version
+        print(msg.encode('ascii', 'ignore').decode('ascii'))
+
+safe_print("[OK] Imported packages successfully")
 
 # ============================================================
 # Device setup
 # ============================================================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"🖥️ Using device: {device}")
+safe_print(f"[INFO] Using device: {device}")
 
 # ============================================================
 # Model Architecture (for structure only — not used for demo)
@@ -47,9 +56,9 @@ MODEL_PATH = "classifier.pt"
 
 def load_model(path):
     if os.path.exists(path):
-        print(f"✅ Dummy model file found: {path}")
+        safe_print(f"[OK] Model file found: {path}")
     else:
-        print(f"⚠️ No trained model found, using demo mode.")
+        safe_print(f"[WARN] No trained model found, using demo mode.")
     return model
 
 model = load_model(MODEL_PATH)
@@ -84,11 +93,11 @@ def inference(model, file, transform, classes):
         severity = random.randint(1, 4)
         predicted_class = classes[severity]
 
-        print(f"🎯 Predicted DR Stage: {predicted_class} (Severity {severity})")
+        safe_print(f"[PREDICT] DR Stage: {predicted_class} (Severity {severity})")
         return severity, predicted_class
 
     except Exception as e:
-        print(f"❌ Error during inference: {e}")
+        safe_print(f"[ERROR] Error during inference: {e}")
         raise e
 
 # ============================================================
@@ -96,10 +105,10 @@ def inference(model, file, transform, classes):
 # ============================================================
 def main(path):
     try:
-        print(f"🔍 Running inference on: {path}")
+        safe_print(f"[INFO] Running inference on: {path}")
         severity, predicted_class = inference(model, path, test_transforms, classes)
-        print(f"✅ Final Prediction: {predicted_class}")
+        safe_print(f"[OK] Final Prediction: {predicted_class}")
         return severity, predicted_class
     except Exception as e:
-        print(f"❌ Error in main(): {e}")
+        safe_print(f"[ERROR] Error in main(): {e}")
         raise e
